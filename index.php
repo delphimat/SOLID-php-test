@@ -24,21 +24,259 @@ declare(strict_types=1);
 //
 // b) Throw a RuntimeException with the message: 'Ship not found!'
 
-class customAction extends Action
+/**
+ *
+ */
+class CustomAction extends Action
 {
-    protected function getVoyages(Ship $ship): array
+    /**
+     * @var CustomCsvWriter
+     */
+    protected $customCsvWriter;
+
+    public function __construct()
     {
-        // TODO: Implement getVoyages() method.
+        $this->customCsvWriter = new CustomCsvWriter();
     }
 
+    /**
+     * @param Ship $ship
+     * @return array|Voyage[]
+     */
+    protected function getVoyages(Ship $ship): array
+    {
+        $voyageShips = (new CustomShip($ship->getName()))->getCruiseLine()->getVoyagesForShip($ship);
+        $voyages = [];
+
+        foreach ($voyageShips as $voyageShip) {
+            if (is_array($voyageShip) && CustomVoyage::isValid($voyageShip)) {
+                $voyages[] = new CustomVoyage($voyageShip);
+            }
+        }
+
+        return $voyages;
+    }
+
+    /**
+     * @return CsvWriter
+     */
     protected function getCsvWriter(): CsvWriter
     {
-        // TODO: Implement getCsvWriter() method.
+        return $this->customCsvWriter;
     }
 }
 
-call_action();
-call_action();
+/**
+ * CustomVoyage is model to save the information of a voyage
+ */
+class CustomVoyage implements Voyage
+{
+    /**
+     * @var int
+     */
+    protected $voyageId;
+    /**
+     * @var DateTime
+     */
+    protected $startTime;
+    /**
+     * @var DateTime
+     */
+    protected $endtime;
+    /**
+     * @var string
+     */
+    protected $duration;
+
+    /**
+     * @param array $row
+     * @return bool
+     */
+    static public function isValid(array $row): bool
+    {
+        return isset($row['voyageId']) && isset($row['startTime']) && isset($row['endTime']);
+    }
+
+    /**
+     * @param array $row
+     */
+    public function __construct(array $row)
+    {
+        $this->voyageId = $row['voyageId'];
+        $this->startTime = (new DateTime())->setTimestamp($row['startTime']);
+        $this->endtime = (new DateTime())->setTimestamp($row['endTime']);
+        $this->duration = $this->startTime->diff($this->endtime)->format('%a');
+    }
+
+    /**
+     * @return int
+     */
+    public function getVoyageId(): int
+    {
+        return $this->voyageId;
+    }
+
+    /**
+     * @return int
+     */
+    public function getStartTime(): string
+    {
+        return $this->startTime->format("Y-m-d");
+    }
+
+    /**
+     * @return int
+     */
+    public function getEndtime(): string
+    {
+        return $this->endtime->format("Y-m-d");
+    }
+
+    /**
+     * @return string
+     */
+    public function getDuration(): string
+    {
+        return $this->duration;
+    }
+
+    /**
+     * @return array
+     */
+    public function getRowCSV(): array
+    {
+        return [
+            $this->getVoyageId(),
+            $this->getStartTime(),
+            $this->getEndtime(),
+            $this->getDuration()
+        ];
+    }
+}
+
+/**
+ * CustomCsvWriter is a class to generate csv from an array of Voyage
+ */
+class CustomCsvWriter implements CsvWriter
+{
+    /**
+     * Header CSV
+     */
+    const HEADER_CSV = [
+        'voyageId',
+        'startDate',
+        'endDate',
+        'duration'
+    ];
+
+    /**
+     * @param string $filename
+     * @param array $voyages
+     * @return void
+     */
+    public function writeVoyagesToCsv(string $filename, array $voyages)
+    {
+        if (!file_exists(Action::FILENAME)) {
+            touch(Action::FILENAME);
+        }
+
+        $fp = fopen(Action::FILENAME, 'w');
+        fputcsv($fp, self::HEADER_CSV, ',');
+
+        foreach ($voyages as $voyage) {
+
+            if ($voyage instanceof Voyage) {
+                fputcsv($fp, $voyage->getRowCSV(), ',');
+            }
+
+        }
+
+        fclose($fp);
+    }
+}
+
+/**
+ * Class used to get all the traverls from the ship
+ */
+class CustomCruiseLine implements CruiseLine
+{
+    /**
+     * @var CruiseLineApi
+     */
+    protected $cruiseLineApi;
+
+    /**
+     *
+     */
+    public function __construct()
+    {
+        $this->cruiseLineApi = new CruiseLineApi();
+    }
+
+    /**
+     * @param Ship $ship
+     * @return int[][]|string[]
+     */
+    public function getVoyagesForShip(Ship $ship): array
+    {
+        try {
+            $datas = $this->cruiseLineApi->getVoyages($ship->getName());
+        } catch (Exception $exception) {
+            // @todo log this exception
+            throw new RuntimeException(sprintf("Error happened with the CruiselineApi: %s", $exception->getMessage()));
+        }
+
+        if (isset($datas['error'])) {
+            throw new RuntimeException("Ship not found!");
+        }
+
+        return $datas;
+    }
+}
+
+/**
+ * Class model to save the information of the ship
+ * name, etc...
+ */
+class CustomShip implements Ship
+{
+    /**
+     * @var
+     */
+    protected $nameShip;
+    /**
+     * @var CustomCruiseLine
+     */
+    private $customCruiseLine;
+
+    /**
+     * @param $nameShip
+     */
+    public function __construct($nameShip)
+    {
+        $this->nameShip = $nameShip;
+        $this->customCruiseLine = new CustomCruiseLine();
+    }
+
+    /**
+     * @return string
+     */
+    public function getName(): string
+    {
+        return $this->nameShip;
+    }
+
+    /**
+     * @return CruiseLine
+     */
+    public function getCruiseLine(): CruiseLine
+    {
+        return $this->customCruiseLine;
+    }
+}
+
+call_action(new customAction(), new customShip('AIDAaura'));
+call_action(new customAction(), new customShip('Marco'));
 
 // Do _not_ modify anything beyond this point.
 
@@ -72,6 +310,9 @@ abstract class Action
     abstract protected function getCsvWriter(): CsvWriter;
 }
 
+/**
+ *
+ */
 class CruiseLineApi
 {
     public function getVoyages(string $shipName): array
